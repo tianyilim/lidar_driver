@@ -21,3 +21,13 @@ The 2 distance sensors are Adafruit VL53L0X sensors controlled using Pololu's li
 Library dependencies are:
 > TODO Add links to other GitHub repos
 Additionally, we use a pair of TCRT-5000 IR sensor to provide feedback on disc rotation, wired to an external interrupt.
+
+## Todo-list:
+### Hardware
+1. Modify model: better LS mount, USB clearance, roof space for slotting TOF sensors
+2. More secure friction-fit for motor-side pulley (consider better drive ratio)
+3. Redesign model (PCB)
+
+### Software
+1. Interrupt handler for both light sensors
+2. (for JQ) standardise packet format
