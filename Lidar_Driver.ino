@@ -12,11 +12,6 @@ const int ls1 = 2, ls2 = 3;
 
 const int motorSpeed = 255; // Half speed (255 / 2)
 
-int state = 0;
-int* statePtr = &state;
-
-void moveMotors(int* statePtr);
-
 void setup() {
   // Start the serial port:
   pinMode(shd1, OUTPUT);
@@ -27,10 +22,7 @@ void setup() {
   driver.attachMotorA(inputA1, inputA2);
   
   Serial.begin(115200);
-  while (!Serial);
   Wire.begin();
-
-  Serial.println("Yo momma");
   
   // activating sensor1 and reseting sensor2
   digitalWrite(shd1, HIGH);
