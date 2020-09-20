@@ -1,5 +1,6 @@
 from pyqtgraph.Qt import QtGui, QtCore
-from PyQt5.QtCore import QRunnable, QThreadPool, pyqtSlot
+from PyQt5.QtCore import QRunnable, QThreadPool, pyqtSlot, pyqtSignal, QThread
+from PyQt5.QtWidgets import QWidget, QApplication, QGridLayout
 import pyqtgraph as pg
 import numpy as np
 import time
@@ -8,25 +9,17 @@ import serial.tools.list_ports
 
 np.random.seed(42)
 
-class Worker(QRunnable):
+class Worker(QThread):
+    signal = pyqtSignal(object)
+
     def __init__(self, main_class):
         super(Worker, self).__init__()
-        self.ser = main_class.ser
-        self.x_data = main_class.x_data
-        self.y_data = main_class.y_data
-        self.s1 = main_class.s1
 
-    # @pyqtSlot()
     def run(self):
         while True:
-            # num = int(self.ser.readline())
             num1 = np.random.random()
             num2 = np.random.random()
-
-            self.x_data.append(num1)
-            self.y_data.append(num2)
-
-            self.s1.setData(x=self.x_data, y=self.y_data)
+            self.signal.emit((num1, num2)) # Sends signal to mainApp
             time.sleep(0.01)
 
 class mainApp():
@@ -34,30 +27,35 @@ class mainApp():
         # Setup windows
         app = QtGui.QApplication([])
         mw = QtGui.QMainWindow()
-        mw.resize(800,800)
+        mw.resize(500, 500)
         view = pg.GraphicsLayoutWidget() 
         mw.setCentralWidget(view)
         w1 = view.addPlot()
-        s1 = pg.ScatterPlotItem(size=10, pen=pg.mkPen(None), brush=pg.mkBrush(255, 255, 255, 200))
+        s1 = pg.ScatterPlotItem(size=10, 
+                                pen=pg.mkPen(None), 
+                                brush=pg.mkBrush(255, 255, 255, 200))
         w1.addItem(s1)
+        self.mw = mw
+        self.s1 = s1
+        self.data = [[],[]] # Stores x & y coordinates
 
         # Setup serial
-        s = [port.device for port in serial.tools.list_ports.comports()]
-        self.ser = serial.Serial(s[1])
-
-        self.s1 = s1
-        self.mw = mw
-        self.x_data=[]
-        self.y_data=[]
+        # s = [port.device for port in serial.tools.list_ports.comports()]
+        # self.ser = serial.Serial(s[1])
 
         # Start worker thread to plot data
-        self.threadpool = QThreadPool()
         worker = Worker(self)
-        self.threadpool.start(worker) 
+        worker.signal.connect(self.grab_data)
+        worker.start()
 
-    def show(self):
+        # Show graph
         self.mw.show()
         QtGui.QApplication.instance().exec_()
 
-bla = mainApp()
-bla.show()
+    def grab_data(self, data):
+        num1, num2 = data
+        self.data[0].append(num1)
+        self.data[1].append(num2)
+        self.s1.setData(x=self.data[0], y=self.data[1])
+
+widget = mainApp()
