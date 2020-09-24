@@ -16,13 +16,11 @@ class Worker(QThread):
         super(Worker, self).__init__()
 
     def run(self):
-        i = 0
         while True:
             num1 = np.random.random()
             num2 = np.random.random()
             self.signal.emit((num1, num2)) # Sends signal to mainApp
             time.sleep(0.001)
-            i = i + 1
 
 class mainApp():
     def __init__(self):
