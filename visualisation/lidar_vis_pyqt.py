@@ -1,29 +1,39 @@
-from PyQt5.QtWidgets import (QApplication, QLabel, QGridLayout, QPushButton)
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QFrame, QComboBox, QHBoxLayout
+from math import sin, cos, radians
 from PyQt5 import QtCore
+from PyQt5.QtCore import pyqtSlot, pyqtSignal, QThread
+from PyQt5.QtWidgets import (QApplication, QLabel, QGridLayout, QPushButton, 
+    QWidget, QVBoxLayout, QFrame, QComboBox, QHBoxLayout)
 
-import serial.tools.list_ports
 import serial
+import serial.tools.list_ports
 import pyqtgraph as pg
 import numpy as np
+
+# Data streamed in the format: (TOF1)-(TOF2)-(LIGHT1)-(LIGHT2)
+np.random.seed(42)
+
+class Worker(QThread):
+    signal = pyqtSignal(object)
+
+    def __init__(self, serial_object):
+        super(Worker, self).__init__()
+        self.serial_object = serial_object
+
+    def run(self):
+        while True:
+            if self.isInterruptionRequested():
+                print("stop worker!")
+                return
+            self.signal.emit(self.serial_object.readline().decode())
 
 class MainWindow(QFrame):
     def __init__(self):
         super().__init__()
         self.baudrate = -1
         self.serialport = "invalid_port"
+        self.xy_data = [[], []]
+        self.buffer = []
         self._buildUI()
-
-    def _handlerSerialport(self, idx):
-        self.serialport = self.combobox_serialport.itemText(idx)
-        self.text_debug.setText(self.serialport)
-
-    def _handlerBaudrate(self, idx):
-        self.baudrate = int(self.combobox_baudrate.itemText(idx))
-        print(self.baudrate)
-
-    def _handlerConnect(self):
-        self.ser = serial.Serial(self.serialport)
 
     def _buildBottomTextBar(self):
         text_debug = QLabel(text="Debug here")
@@ -53,40 +63,62 @@ class MainWindow(QFrame):
         combobox_serialport.currentIndexChanged.connect(self._handlerSerialport)
         grid_serialport = QVBoxLayout()
         grid_serialport.addStretch(1)
-        grid_serialport.addWidget(text_serialport, alignment=QtCore.Qt.AlignCenter)
-        grid_serialport.addWidget(combobox_serialport, alignment=QtCore.Qt.AlignCenter)
+        grid_serialport.addWidget(text_serialport)
+        grid_serialport.addWidget(combobox_serialport)
 
         # Baud rate setup
         text_serialport = QLabel(text="Baud rate")
+        list_baudrate = ["300", "600", "1200", "2400", "4800", "9600", "14400", 
+                         "19200", "28800", "31250", "38400", "57600", "115200"]
         combobox_baudrate = QComboBox()
-        combobox_baudrate.addItems(["300", "600", "1200", "2400", "4800", "9600", "14400", "19200", "28800", "31250", "38400", "57600", "115200"])
+        combobox_baudrate.addItems(list_baudrate)
         combobox_baudrate.setFixedWidth(180)
         combobox_baudrate.currentIndexChanged.connect(self._handlerBaudrate)
         grid_baudrate = QVBoxLayout()
         grid_baudrate.addStretch(1)
-        grid_baudrate.addWidget(text_serialport, alignment=QtCore.Qt.AlignCenter)
-        grid_baudrate.addWidget(combobox_baudrate, alignment=QtCore.Qt.AlignCenter)
+        grid_baudrate.addWidget(text_serialport)
+        grid_baudrate.addWidget(combobox_baudrate)
 
         # Connect button setup
         button_connect = QPushButton()
         button_connect.setText("Connect")
+        button_connect.setFixedWidth(100)
         button_connect.clicked.connect(self._handlerConnect)
+
+        button_disconnect = QPushButton()
+        button_disconnect.setText("Disconnect")
+        button_disconnect.setFixedWidth(100)
+        button_disconnect.clicked.connect(self._handlerDisconnect) 
+        grid_buttons = QHBoxLayout()
+        grid_buttons.addWidget(button_connect)
+        grid_buttons.addWidget(button_disconnect)
+
+        # Reset button setup
+        button_reset = QPushButton()
+        button_reset.setText("Reset graph")
+        button_reset.setFixedWidth(100)
+        button_reset.clicked.connect(self._handlerReset)
 
         # Overall grid
         grid_settings = QVBoxLayout()
         grid_settings.addLayout(grid_connect_status)
         grid_settings.addLayout(grid_serialport)
         grid_settings.addLayout(grid_baudrate)
-        grid_settings.addWidget(button_connect)
+        grid_settings.addLayout(grid_buttons)
 
         frame_settings = QFrame()
         frame_settings.setLayout(grid_settings)
-        frame_settings.setFixedWidth(200)
+        frame_settings.setFixedWidth(230)
         self.frame_settings = frame_settings
 
         # Exposing combobox for callback functions
         self.combobox_baudrate = combobox_baudrate
         self.combobox_serialport = combobox_serialport
+        self.drawing_connect_status = drawing_connect_status
+        self.text_connect_status = text_connect_status
+
+        # Set dropdown box default values
+        self.combobox_baudrate.setCurrentIndex(list_baudrate.index('115200'))
 
     def _buildMainMapUI(self):
         text_header = QLabel(text="LIDAR visualisation v1.0")
@@ -94,34 +126,27 @@ class MainWindow(QFrame):
         frame_placeholder = QFrame()
         frame_placeholder.setStyleSheet("background-color:pink")
 
-        # view = pg.GraphicsLayoutWidget()  ## GraphicsView with GraphicsLayout inserted by default
-
-        # w1 = view.addPlot()
-        w1 = pg.PlotWidget()
-        w1.setFixedSize(800, 600)
-
-        np.random.seed(42)
-        n = 10
-        s1 = pg.ScatterPlotItem(size=10, brush=pg.mkBrush(255, 255, 255, 200))
-        pos = np.random.normal(size=(2,n))
-        spots = [{'pos': pos[:,i], 'data': 1} for i in range(n)] + [{'pos': [0,0], 'data': 1}]
-        s1.addPoints(spots)
-        w1.addItem(s1)
+        plot_widget = pg.PlotWidget()
+        plot_widget.setFixedSize(800, 600)
+        graph_item = pg.ScatterPlotItem(size=10, brush=pg.mkBrush(255, 255, 255, 200))
         
-        s1.addPoints(x=[0], y=[1])
+        # pos = np.random.normal(size=(2,10))
+        # self.xy_data = pos.tolist()
+        graph_item.setData(x=self.xy_data[0], y=self.xy_data[1])
+        plot_widget.addItem(graph_item)
+        plot_widget.setRange(xRange=[-1000,1000], yRange=[-1000, 1000])
 
         grid_map = QGridLayout()
         grid_map.addWidget(text_header, 0, 0)
-        grid_map.addWidget(w1, 1, 0)
+        grid_map.addWidget(plot_widget, 1, 0)
 
         frame_map = QFrame()
         frame_map.setLayout(grid_map)
 
         self.frame_map = frame_map
+        self.graph_item = graph_item
 
     def _buildUI(self):
-        # text2 = QLabel(text="World")
-        # text2.setStyleSheet("background-color:cyan")
         self._buildBottomTextBar()
         self._buildRightSettingsBar()
         self._buildMainMapUI()
@@ -130,22 +155,85 @@ class MainWindow(QFrame):
         grid_main.addWidget(self.frame_map, 0, 0)
         grid_main.addWidget(self.frame_settings, 0, 1)
         grid_main.addWidget(self.text_debug, 1, 0, 1, 2) # row1, column2, occupies 1 row and 2 columns
-        # grid_main.setRowStretch(1,0)
-        
-        # grid.addWidget(Button1, 0, 1, alignment=QtCore.Qt.AlignRight)
-        # grid.addWidget(Button2, 1, 0)
-        # grid.addWidget(Button3, 1, 2)
-        # grid.addWidget(Button4, 1, 1)
  
         self.setLayout(grid_main)
         self.setGeometry(300, 300, 200, 200) # x, y, width, height
         self.setWindowTitle('PyQt5 Layout')
         self.show()
 
+    def _handlerSerialport(self, idx):
+        self.serialport = self.combobox_serialport.itemText(idx)
+        self.text_debug.setText(self.serialport)
+
+    def _handlerBaudrate(self, idx):
+        self.baudrate = int(self.combobox_baudrate.itemText(idx))
+
+    def _handlerConnect(self):
+        try:
+            self.ser = serial.Serial(self.serialport, int(self.baudrate))
+            print("Connected!")
+            self.worker = Worker(self.ser)
+            self.worker.signal.connect(self.handlerWorker)
+            self.worker.start()
+
+            self.drawing_connect_status.setStyleSheet("""border: 0px solid black; 
+                                                border-radius: 10px;
+                                                background-color: green""")
+            self.text_connect_status.setText("Connected")
+
+        except:
+            self.handlerPrintDebug("Failed to connect!")
+
+    def _handlerDisconnect(self):
+        try:
+            self.ser.close()
+            self.worker.requestInterruption()
+            self.handlerPrintDebug("Disconnected!")
+            self.drawing_connect_status.setStyleSheet("""border: 0px solid black; 
+                                                border-radius: 10px;
+                                                background-color: red""")
+            self.text_connect_status.setText("Disconnected")
+        except:
+            self.handlerPrintDebug("Nothing to disconnect")
+
+    def _handlerReset(self):
+        self.xy_data = [[], []]
+        self.graph_item.setData(x=self.xy_data[0], y=self.xy_data[1])
+        self.handlerPrintDebug("Graph reset!")
+
+    def handlerPrintDebug(self, text):
+        self.text_debug.setText(str(text))
+
+    def plot(self, x, y):
+        self.xy_data[0].append(x)
+        self.xy_data[1].append(y)
+        self.graph_item.setData(x=self.xy_data[0], y=self.xy_data[1])
+
+    def handlerWorker(self, input):
+        input = str(input)
+        try:
+            tof1, tof2, light1, light2 = input.split("-")
+            if (light1 == '1' and len(self.buffer) > 10):
+                self.plotBuffer()
+                self.buffer = []
+            else:
+                self.buffer.append(float(tof1))
+        except ValueError:
+            print("init stuff")
+        print(self.buffer)
+
+    def plotPolar(self, angle, dist):
+        self.plot(dist * cos(radians(90-angle)), 
+                  dist * sin(radians(90-angle)))
+
+    def plotBuffer(self):
+        self.xy_data = [[], []]
+        self.graph_item.setData(x=self.xy_data[0], y=self.xy_data[1])
+
+        noOfPoints = len(self.buffer)
+        for idx, point in enumerate(self.buffer):
+            self.plotPolar(360 / noOfPoints * idx, point)
+        
 app = QApplication([])
 bla = MainWindow()
 app.exec_()
-
-# while True:
-#     print(str(bla.ser.readline()))
-    # self.text_debug.setText(ser.readline())
