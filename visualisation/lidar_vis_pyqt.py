@@ -45,7 +45,8 @@ class MainWindow(QFrame):
     def _buildRightSettingsBar(self):
         # Connect status setup
         text_connect_status = QLabel(text="Disconnected")
-        drawing_connect_status = QLabel() # Some creative use of stylesheets to draw our circle
+        drawing_connect_status = QLabel() # Some creative use of stylesheets to 
+                                          # draw our circle
         drawing_connect_status.setFixedSize(20, 20)
         drawing_connect_status.setStyleSheet("""border: 0px solid black; 
                                                 border-radius: 10px;
@@ -89,15 +90,17 @@ class MainWindow(QFrame):
         button_disconnect.setText("Disconnect")
         button_disconnect.setFixedWidth(100)
         button_disconnect.clicked.connect(self._handlerDisconnect) 
-        grid_buttons = QHBoxLayout()
-        grid_buttons.addWidget(button_connect)
-        grid_buttons.addWidget(button_disconnect)
 
         # Reset button setup
         button_reset = QPushButton()
         button_reset.setText("Reset graph")
-        button_reset.setFixedWidth(100)
+        button_reset.setFixedWidth(200)
         button_reset.clicked.connect(self._handlerReset)
+
+        grid_buttons = QGridLayout()
+        grid_buttons.addWidget(button_connect, 1, 1)
+        grid_buttons.addWidget(button_disconnect, 1, 2)
+        grid_buttons.addWidget(button_reset, 2, 1)
 
         # Overall grid
         grid_settings = QVBoxLayout()
@@ -161,6 +164,7 @@ class MainWindow(QFrame):
         self.setWindowTitle('PyQt5 Layout')
         self.show()
 
+    # Handler functions
     def _handlerSerialport(self, idx):
         self.serialport = self.combobox_serialport.itemText(idx)
         self.text_debug.setText(self.serialport)
@@ -171,7 +175,6 @@ class MainWindow(QFrame):
     def _handlerConnect(self):
         try:
             self.ser = serial.Serial(self.serialport, int(self.baudrate))
-            print("Connected!")
             self.worker = Worker(self.ser)
             self.worker.signal.connect(self.handlerWorker)
             self.worker.start()
@@ -180,34 +183,28 @@ class MainWindow(QFrame):
                                                 border-radius: 10px;
                                                 background-color: green""")
             self.text_connect_status.setText("Connected")
-
+            self.text_debug.setText("Reading values...")
         except:
-            self.handlerPrintDebug("Failed to connect!")
+            self.text_debug.setText("Failed to connect!")
 
     def _handlerDisconnect(self):
         try:
-            self.ser.close()
             self.worker.requestInterruption()
-            self.handlerPrintDebug("Disconnected!")
+            self.ser.close()
+            self.text_debug.setText("Disconnected; worker stopped")
             self.drawing_connect_status.setStyleSheet("""border: 0px solid black; 
                                                 border-radius: 10px;
                                                 background-color: red""")
             self.text_connect_status.setText("Disconnected")
+            self._handlerReset()
+            self.text_debug.setText("Disconnected")
         except:
-            self.handlerPrintDebug("Nothing to disconnect")
+            self.text_debug.setText("Nothing to disconnect")
 
     def _handlerReset(self):
         self.xy_data = [[], []]
         self.graph_item.setData(x=self.xy_data[0], y=self.xy_data[1])
-        self.handlerPrintDebug("Graph reset!")
-
-    def handlerPrintDebug(self, text):
-        self.text_debug.setText(str(text))
-
-    def plot(self, x, y):
-        self.xy_data[0].append(x)
-        self.xy_data[1].append(y)
-        self.graph_item.setData(x=self.xy_data[0], y=self.xy_data[1])
+        self.text_debug.setText("Graph reset!")
 
     def handlerWorker(self, input):
         input = str(input)
@@ -221,6 +218,12 @@ class MainWindow(QFrame):
         except ValueError:
             print("init stuff")
         print(self.buffer)
+
+    # Plotting functions
+    def plot(self, x, y):
+        self.xy_data[0].append(x)
+        self.xy_data[1].append(y)
+        self.graph_item.setData(x=self.xy_data[0], y=self.xy_data[1])
 
     def plotPolar(self, angle, dist):
         self.plot(dist * cos(radians(90-angle)), 
